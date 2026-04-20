@@ -1,0 +1,10 @@
+name: mini-mesh
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - nodejs=20
+  - redis-server
+  - pip
+  - pip:
+    - dotenv
