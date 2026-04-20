@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mini-Mesh | Responsive Node</title>
+    <style>
+        :root {
+            --tl-color: #00ffcc; --tr-color: #ff00ff;
+            --bl-color: #ffff00; --br-color: #0077ff;
+            --scale-factor: 1;
+        }
+
+        body { 
+            background: #000; color: #eee; font-family: 'Courier New', monospace; 
+            margin: 0; padding: 0; height: 100vh; width: 100vw;
+            display: flex; align-items: center; justify-content: center; overflow: hidden; 
+        }
+
+        #viewport { 
+            width: 100vmin; height: 100vmin;
+            max-width: 1000px; max-height: 1000px;
+            position: relative; background: #050505; 
+            overflow: hidden; border: 1px solid #222;
+        }
+
+        #authority-highlight {
+            position: absolute; width: 50%; height: 50%;
+            display: none; z-index: 1; pointer-events: none;
+        }
+
+        .theme-TOP_LEFT     #authority-highlight { display: block; top: 0; left: 0; border: 1px solid var(--tl-color); background: rgba(0, 255, 204, 0.08); }
+        .theme-TOP_RIGHT    #authority-highlight { display: block; top: 0; left: 50%; border: 1px solid var(--tr-color); background: rgba(255, 0, 255, 0.08); }
+        .theme-BOTTOM_LEFT  #authority-highlight { display: block; top: 50%; left: 0; border: 1px solid var(--bl-color); background: rgba(255, 255, 0, 0.08); }
+        .theme-BOTTOM_RIGHT #authority-highlight { display: block; top: 50%; left: 50%; border: 1px solid var(--br-color); background: rgba(0, 119, 255, 0.08); }
+
+        #grid-layer {
+            width: 100%; height: 100%; position: absolute;
+            display: none; background-image: radial-gradient(rgba(255,255,255,0.05) 1.5px, transparent 1.5px);
+            background-size: 50px 50px; z-index: 1;
+        }
+        .theme-node #grid-layer { display: block; }
+
+        .axis { position: absolute; background: rgba(255, 255, 255, 0.1); z-index: 2; display: none; }
+        .theme-node .axis { display: block; }
+
+        #world-container { 
+            width: 1000px; height: 1000px; position: absolute; 
+            top: 0; left: 0; z-index: 10; 
+            transform: scale(var(--scale-factor)); transform-origin: top left;
+        }
+
+        #player { 
+            width: 30px; height: 30px; border-radius: 50%; position: absolute; 
+            z-index: 20; display: none; border: 3px solid white; box-sizing: border-box;
+            transition: opacity 0.2s, border 0.2s;
+        }
+
+        #latency-monitor {
+            position: absolute; top: 5px; right: 5px; font-size: 10px; color: #00ffcc; z-index: 100;
+        }
+        .theme-node #latency-monitor { display: none; }
+    </style>
+</head>
+<body id="main-body">
+
+    <div id="latency-monitor">RTT: <span id="latency-ms">0</span>ms</div>
+
+    <div id="viewport">
+        <div id="authority-highlight"></div>
+        <div id="grid-layer"></div>
+        <div class="axis" style="width: 1px; height: 100%; left: 50%;"></div>
+        <div class="axis" style="height: 1px; width: 100%; top: 50%;"></div>
+        <div id="world-container"><div id="player"></div></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const player = document.getElementById('player');
+        const body = document.getElementById('main-body');
+        const viewport = document.getElementById('viewport');
+        const latencyDisplay = document.getElementById('latency-ms');
+        
+        let ghostingEnabled = false; // Initial state
+
+        const urlParams = new URLSearchParams(window.location.search);
+        let zone = (urlParams.get('zone') || "").toUpperCase();
+        if (zone) body.classList.add(`theme-${zone}`, 'theme-node');
+
+        // Listen for Dashboard Commands
+        window.addEventListener('message', (e) => {
+            if (e.data.type === 'toggle_ghosting') ghostingEnabled = e.data.value;
+        });
+
+        function updateScale() {
+            const factor = viewport.clientWidth / 1000;
+            document.documentElement.style.setProperty('--scale-factor', factor);
+        }
+        window.addEventListener('resize', updateScale);
+        updateScale();
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key.includes('Arrow')) {
+                e.preventDefault();
+                socket.emit('move', e.key.replace('Arrow', 'MOVE_').toUpperCase());
+            }
+        });
+
+        socket.on('state_update', (pos) => {
+            if (pos.timestamp) latencyDisplay.innerText = Date.now() - pos.timestamp;
+
+            player.style.left = (pos.x + 500 - 15) + 'px';
+            player.style.top = (pos.y + 500 - 15) + 'px';
+
+            const isTop = pos.y < 0;
+            const isLeft = pos.x < 0;
+            let activeColor = '#ffffff';
+
+            if (isTop && isLeft)    activeColor = '#00ffcc';
+            if (isTop && !isLeft)   activeColor = '#ff00ff';
+            if (!isTop && isLeft)   activeColor = '#ffff00';
+            if (!isTop && !isLeft)  activeColor = '#0077ff';
+
+            if (zone) {
+                const currentBuffer = ghostingEnabled ? 60 : 0;
+                const myXMin = (zone.includes('LEFT')) ? -500 : 0;
+                const myXMax = (zone.includes('LEFT')) ? 0 : 500;
+                const myYMin = (zone.includes('TOP')) ? -500 : 0;
+                const myYMax = (zone.includes('TOP')) ? 0 : 500;
+
+                const inVisualRange = 
+                    pos.x >= (myXMin - currentBuffer) && pos.x <= (myXMax + currentBuffer) && 
+                    pos.y >= (myYMin - currentBuffer) && pos.y <= (myYMax + currentBuffer);
+
+                let hasAuthority = false;
+                if (zone === 'TOP_LEFT' && isTop && isLeft) hasAuthority = true;
+                if (zone === 'TOP_RIGHT' && isTop && !isLeft) hasAuthority = true;
+                if (zone === 'BOTTOM_LEFT' && !isTop && isLeft) hasAuthority = true;
+                if (zone === 'BOTTOM_RIGHT' && !isTop && !isLeft) hasAuthority = true;
+
+                if (inVisualRange) {
+                    player.style.display = 'block';
+                    player.style.opacity = hasAuthority ? '1.0' : '0.3';
+                    player.style.border = hasAuthority ? '2px solid white' : '2px dashed rgba(255,255,255,0.5)';
+                } else {
+                    player.style.display = 'none';
+                }
+            } else {
+                player.style.display = 'block';
+                player.style.opacity = '1.0';
+                player.style.border = '2px solid white';
+            }
+            
+            player.style.background = activeColor;
+            player.style.boxShadow = `0 0 35px ${activeColor}`;
+        });
+    </script>
+</body>
+</html>

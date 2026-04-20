@@ -1,0 +1,22 @@
+{
+  "name": "mini-mesh",
+  "version": "1.0.0",
+  "description": "",
+  "main": "gateway.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start-mesh": "concurrently -n \"TL,TR,BL,BR,GW\" -c \"bgBlue,bgGreen,bgYellow,bgMagenta,bgCyan\" \"cross-env ZONE=TOP_LEFT node simulator.js\" \"cross-env ZONE=TOP_RIGHT node simulator.js\" \"cross-env ZONE=BOTTOM_LEFT node simulator.js\" \"cross-env ZONE=BOTTOM_RIGHT node simulator.js\" \"node gateway.js\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "ioredis": "^5.10.1",
+    "socket.io": "^4.8.3"
+  }
+}
