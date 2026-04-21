@@ -13,7 +13,7 @@ async function checkPersistence() {
         console.log(" No player data found in the Replication Layer.");
     }
 
-    process.exit(); // Close the script after reading
+    process.exit();
 }
 
 checkPersistence();

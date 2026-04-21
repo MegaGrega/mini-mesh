@@ -5,7 +5,17 @@
   "main": "gateway.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start-mesh": "concurrently -n \"TL,TR,BL,BR,GW\" -c \"bgBlue,bgGreen,bgYellow,bgMagenta,bgCyan\" \"cross-env ZONE=TOP_LEFT node simulator.js\" \"cross-env ZONE=TOP_RIGHT node simulator.js\" \"cross-env ZONE=BOTTOM_LEFT node simulator.js\" \"cross-env ZONE=BOTTOM_RIGHT node simulator.js\" \"node gateway.js\""
+    "prestart-all": "npx kill-port 3000",
+    "start-all": "concurrently \"start http://localhost:3000/dashboard.html\" \"node gateway.js\" \"node authority_manager.js\" \"cross-env ZONE=TOP_LEFT node simulator.js\" \"cross-env ZONE=TOP_RIGHT node simulator.js\" \"cross-env ZONE=BOTTOM_LEFT node simulator.js\" \"cross-env ZONE=BOTTOM_RIGHT node simulator.js\"",
+    "start-core": "concurrently \"node gateway.js\" \"node manager.js\"",
+    "start-sims-local": "concurrently \"ZONE=TOP_LEFT node simulator.js\" \"ZONE=TOP_RIGHT node simulator.js\" \"ZONE=BOTTOM_LEFT node simulator.js\" \"ZONE=BOTTOM_RIGHT node simulator.js\"",
+    "start-zone": "node simulator.js",
+    "start-gateway": "node gateway.js",
+    "start-manager": "node manager.js",
+    "zone-tl": "ZONE=TOP_LEFT node simulator.js",
+    "zone-tr": "ZONE=TOP_RIGHT node simulator.js",
+    "zone-bl": "ZONE=BOTTOM_LEFT node simulator.js",
+    "zone-br": "ZONE=BOTTOM_RIGHT node simulator.js"
   },
   "keywords": [],
   "author": "",
@@ -18,5 +28,8 @@
     "express": "^5.2.1",
     "ioredis": "^5.10.1",
     "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "kill-port": "^2.0.1"
   }
 }
