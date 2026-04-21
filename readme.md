@@ -10,6 +10,7 @@ The system is designed to simulate a seamless world by dividing a 2D coordinate 
 * **Unified Replication Layer:** A centralized Redis instance acts as the shared state store. All simulation nodes write to this layer, while a gateway service broadcasts updates to connected clients.
 * **Interest Management (Ghosting):** To handle boundary transitions, the client implements a toggleable buffer zone. This allows the client to render entities located in neighboring authoritative zones as semi-transparent "ghost" proxies.
 
+## Dashboard View
 <img width="3440" height="1440" alt="Screenshot 2026-04-21 161200" src="https://github.com/user-attachments/assets/4819aef9-df15-4954-98c5-49c36ee0ee60" />
 
 
