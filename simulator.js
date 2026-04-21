@@ -1,33 +1,90 @@
+require('dotenv').config();
 const { redis, subRedis } = require('./db');
 
-const ZONE = process.env.ZONE || "TOP_LEFT"; 
-const BOUNDARY = 0; // (0,0) is the center
+const ZONE = (process.env.ZONE || process.argv[2] || "").trim().toUpperCase();
 
-console.log(`Simulation Node [${ZONE}] started...`);
+if (!ZONE) {
+    console.error("CRITICAL ERROR: No ZONE defined.");
+    process.exit(1);
+}
 
-subRedis.subscribe('player_inputs');
+/**
+ * DISTRIBUTED LOCK LOGIC
+ * Prevents multiple simulators from running the same zone simultaneously.
+ */
+const lockKey = `lock:zone:${ZONE}`;
+const lockTimeout = 10000; // 10 seconds
 
-subRedis.on('message', async (channel, message) => {
-    const data = JSON.parse(message);
-    let pos = JSON.parse(await redis.get(`player:${data.id}:pos`)) || { x: 0, y: 0 };
+async function acquireLock() {
+    // NX = Set if Not Exists | EX = Expire in 10s
+    // We use a unique value (timestamp) to identify this specific instance
+    const instanceId = `node_${Date.now()}`;
+    const result = await redis.set(lockKey, instanceId, 'NX', 'EX', lockTimeout / 1000);
 
-    // QUADRANT LOGIC
-    const isTop = pos.y < BOUNDARY;
-    const isLeft = pos.x < BOUNDARY;
-
-    let isOwnedByMe = false;
-    if (ZONE === "TOP_LEFT" && isTop && isLeft) isOwnedByMe = true;
-    if (ZONE === "TOP_RIGHT" && isTop && !isLeft) isOwnedByMe = true;
-    if (ZONE === "BOTTOM_LEFT" && !isTop && isLeft) isOwnedByMe = true;
-    if (ZONE === "BOTTOM_RIGHT" && !isTop && !isLeft) isOwnedByMe = true;
-
-    if (isOwnedByMe) {
-        if (data.action === 'MOVE_RIGHT') pos.x += 10;
-        if (data.action === 'MOVE_LEFT')  pos.x -= 10;
-        if (data.action === 'MOVE_UP')    pos.y -= 10;
-        if (data.action === 'MOVE_DOWN')  pos.y += 10;
-
-        await redis.set(`player:${data.id}:pos`, JSON.stringify(pos));
-        console.log(`[${ZONE}] Handled ${data.id} at (${pos.x}, ${pos.y})`);
+    if (result !== 'OK') {
+        console.error(`\n[${ZONE}] FATAL: Another simulator is already authoritative for this zone.`);
+        console.error(`[${ZONE}] Shutdown initiated to prevent Split-Brain collision.\n`);
+        process.exit(1);
     }
-});
+
+    console.log(`[${ZONE}] Lock acquired. Authority confirmed.`);
+
+    // HEARTBEAT: Refresh the lock every 5 seconds to keep it from expiring
+    setInterval(async () => {
+        try {
+            await redis.expire(lockKey, lockTimeout / 1000);
+        } catch (err) {
+            console.error(`[${ZONE}] Heartbeat failure:`, err.message);
+        }
+    }, 5000);
+}
+
+// Start the sequence
+async function start() {
+    await acquireLock();
+
+    console.log(`>>> Simulator Node [${ZONE}] is now AUTHORITATIVE.`);
+
+    const channelName = `input:${ZONE}`;
+
+    // 1. Subscribe to the channel
+    subRedis.subscribe(channelName, (err, count) => {
+        if (err) console.error(`[${ZONE}] Sub error:`, err.message);
+        else console.log(`[${ZONE}] Listening on: ${channelName}`);
+    });
+
+    // 2. Atomic Message Handling
+    subRedis.on('message', async (channel, message) => {
+        if (channel !== channelName) return;
+
+        try {
+            const { id, action } = JSON.parse(message);
+            const playerKey = `player:${id}:pos`;
+            const speed = 5;
+
+            // ATOMIC OPERATIONS
+            switch (action) {
+                case 'MOVE_UP':    await redis.hincrby(playerKey, 'y', -speed); break;
+                case 'MOVE_DOWN':  await redis.hincrby(playerKey, 'y', speed);  break;
+                case 'MOVE_LEFT':  await redis.hincrby(playerKey, 'x', -speed); break;
+                case 'MOVE_RIGHT': await redis.hincrby(playerKey, 'x', speed);  break;
+                default: return;
+            }
+
+            // Update Metadata
+            await redis.hset(playerKey, {
+                lastUpdater: ZONE,
+                lastProcessed: Date.now()
+            });
+
+            // Optional: Remove console logs in production to reduce IO hitching
+            const current = await redis.hgetall(playerKey);
+            console.log(`[${ZONE}] Moved ${id} to (${current.x}, ${current.y})`);
+
+        } catch (err) {
+            console.error(`[${ZONE}] Error:`, err.message);
+        }
+    });
+}
+
+start();

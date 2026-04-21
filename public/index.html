@@ -1,6 +1,7 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <title>Mini-Mesh | Responsive Node</title>
     <style>
         :root {
@@ -22,6 +23,7 @@
             overflow: hidden; border: 1px solid #222;
         }
 
+        /* Authority and Grid logic restored */
         #authority-highlight {
             position: absolute; width: 50%; height: 50%;
             display: none; z-index: 1; pointer-events: none;
@@ -51,16 +53,42 @@
         #player { 
             width: 30px; height: 30px; border-radius: 50%; position: absolute; 
             z-index: 20; display: none; border: 3px solid white; box-sizing: border-box;
-            transition: opacity 0.2s, border 0.2s;
+            /* Added smooth transition back in */
+            transition: opacity 0.2s, border 0.2s, all 0.05s linear;
+        }
+
+        /* The Lobby Overlay */
+        #lobby {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 1000;
+        }
+
+        .menu-box {
+            background: #111; border: 2px solid #333; padding: 40px; border-radius: 8px; text-align: center;
+        }
+
+        button {
+            background: #00ffcc; color: black; border: none; padding: 15px 30px;
+            font-family: 'Courier New', monospace; font-weight: bold; cursor: pointer;
+            margin-top: 20px;
         }
 
         #latency-monitor {
-            position: absolute; top: 5px; right: 5px; font-size: 10px; color: #00ffcc; z-index: 100;
+            position: absolute; top: 10px; right: 10px; font-size: 12px; color: #00ffcc; z-index: 100;
         }
-        .theme-node #latency-monitor { display: none; }
     </style>
 </head>
 <body id="main-body">
+
+    <div id="lobby">
+        <div class="menu-box">
+            <h1 style="color: #00ffcc;">MINI-MESH CORE</h1>
+            <p>AWAITING AUTHORIZATION...</p>
+            <button onclick="enterGame()">INITIALIZE SESSION</button>
+        </div>
+    </div>
 
     <div id="latency-monitor">RTT: <span id="latency-ms">0</span>ms</div>
 
@@ -75,21 +103,36 @@
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
-        const player = document.getElementById('player');
         const body = document.getElementById('main-body');
         const viewport = document.getElementById('viewport');
+        const lobby = document.getElementById('lobby');
         const latencyDisplay = document.getElementById('latency-ms');
         
-        let ghostingEnabled = false; // Initial state
+        let inGame = false;
+        let ghostingEnabled = false; // This is now correctly toggled
+
+        // Handle the "Ghosting" toggle from your dashboard
+        window.addEventListener('message', (e) => {
+            if (e.data.type === 'toggle_ghosting') {
+                ghostingEnabled = e.data.value;
+                console.log("Ghosting toggled:", ghostingEnabled);
+            }
+        });
 
         const urlParams = new URLSearchParams(window.location.search);
         let zone = (urlParams.get('zone') || "").toUpperCase();
         if (zone) body.classList.add(`theme-${zone}`, 'theme-node');
 
-        // Listen for Dashboard Commands
-        window.addEventListener('message', (e) => {
-            if (e.data.type === 'toggle_ghosting') ghostingEnabled = e.data.value;
-        });
+        if (zone) {
+            lobby.style.display = 'none';
+            inGame = true; 
+        }
+
+        function enterGame() {
+            socket.emit('join_game', { username: 'player1' });
+            lobby.style.display = 'none';
+            inGame = true;
+        }
 
         function updateScale() {
             const factor = viewport.clientWidth / 1000;
@@ -99,59 +142,93 @@
         updateScale();
 
         window.addEventListener('keydown', (e) => {
+            if (!inGame) return;
             if (e.key.includes('Arrow')) {
                 e.preventDefault();
                 socket.emit('move', e.key.replace('Arrow', 'MOVE_').toUpperCase());
             }
         });
 
-        socket.on('state_update', (pos) => {
-            if (pos.timestamp) latencyDisplay.innerText = Date.now() - pos.timestamp;
+        const playerElements = {};
 
-            player.style.left = (pos.x + 500 - 15) + 'px';
-            player.style.top = (pos.y + 500 - 15) + 'px';
+        socket.on('state_update', (data) => {
+            if (!inGame) return;
+            if (data.timestamp) latencyDisplay.innerText = Date.now() - data.timestamp;
 
-            const isTop = pos.y < 0;
-            const isLeft = pos.x < 0;
-            let activeColor = '#ffffff';
+            data.players.forEach(pos => {
+                let el = playerElements[pos.id];
 
-            if (isTop && isLeft)    activeColor = '#00ffcc';
-            if (isTop && !isLeft)   activeColor = '#ff00ff';
-            if (!isTop && isLeft)   activeColor = '#ffff00';
-            if (!isTop && !isLeft)  activeColor = '#0077ff';
-
-            if (zone) {
-                const currentBuffer = ghostingEnabled ? 60 : 0;
-                const myXMin = (zone.includes('LEFT')) ? -500 : 0;
-                const myXMax = (zone.includes('LEFT')) ? 0 : 500;
-                const myYMin = (zone.includes('TOP')) ? -500 : 0;
-                const myYMax = (zone.includes('TOP')) ? 0 : 500;
-
-                const inVisualRange = 
-                    pos.x >= (myXMin - currentBuffer) && pos.x <= (myXMax + currentBuffer) && 
-                    pos.y >= (myYMin - currentBuffer) && pos.y <= (myYMax + currentBuffer);
-
-                let hasAuthority = false;
-                if (zone === 'TOP_LEFT' && isTop && isLeft) hasAuthority = true;
-                if (zone === 'TOP_RIGHT' && isTop && !isLeft) hasAuthority = true;
-                if (zone === 'BOTTOM_LEFT' && !isTop && isLeft) hasAuthority = true;
-                if (zone === 'BOTTOM_RIGHT' && !isTop && !isLeft) hasAuthority = true;
-
-                if (inVisualRange) {
-                    player.style.display = 'block';
-                    player.style.opacity = hasAuthority ? '1.0' : '0.3';
-                    player.style.border = hasAuthority ? '2px solid white' : '2px dashed rgba(255,255,255,0.5)';
-                } else {
-                    player.style.display = 'none';
+                if (!el) {
+                    el = document.createElement('div');
+                    el.id = `player-${pos.id}`;
+                    el.style.width = '30px';
+                    el.style.height = '30px';
+                    el.style.borderRadius = '50%';
+                    el.style.position = 'absolute';
+                    el.style.zIndex = '20';
+                    el.style.border = '3px solid white';
+                    el.style.boxSizing = 'border-box';
+                    el.style.transition = 'opacity 0.2s, border 0.2s, all 0.08s linear';
+                    
+                    document.getElementById('world-container').appendChild(el);
+                    playerElements[pos.id] = el;
                 }
-            } else {
-                player.style.display = 'block';
-                player.style.opacity = '1.0';
-                player.style.border = '2px solid white';
-            }
-            
-            player.style.background = activeColor;
-            player.style.boxShadow = `0 0 35px ${activeColor}`;
+
+                // 1. Update Position
+                el.style.left = (pos.x + 500 - 15) + 'px';
+                el.style.top = (pos.y + 500 - 15) + 'px';
+
+                const isTop = pos.y < 0;
+                const isLeft = pos.x < 0;
+                let activeColor = '#ffffff';
+
+                if (isTop && isLeft)    activeColor = '#00ffcc';
+                if (isTop && !isLeft)   activeColor = '#ff00ff';
+                if (!isTop && isLeft)   activeColor = '#ffff00';
+                if (!isTop && !isLeft)  activeColor = '#0077ff';
+
+                // 2. RESTORED GHOSTING & AUTHORITY LOGIC
+                if (zone) {
+                    // Apply the buffer if ghosting is enabled
+                    const currentBuffer = ghostingEnabled ? 60 : 0;
+                    
+                    const myXMin = (zone.includes('LEFT')) ? -500 : 0;
+                    const myXMax = (zone.includes('LEFT')) ? 0 : 500;
+                    const myYMin = (zone.includes('TOP')) ? -500 : 0;
+                    const myYMax = (zone.includes('TOP')) ? 0 : 500;
+
+                    // Check if the player is within my zone + the ghosting buffer
+                    const inVisualRange = 
+                        pos.x >= (myXMin - currentBuffer) && pos.x <= (myXMax + currentBuffer) && 
+                        pos.y >= (myYMin - currentBuffer) && pos.y <= (myYMax + currentBuffer);
+
+                    let hasAuthority = false;
+                    if (zone === 'TOP_LEFT' && isTop && isLeft) hasAuthority = true;
+                    if (zone === 'TOP_RIGHT' && isTop && !isLeft) hasAuthority = true;
+                    if (zone === 'BOTTOM_LEFT' && !isTop && isLeft) hasAuthority = true;
+                    if (zone === 'BOTTOM_RIGHT' && !isTop && !isLeft) hasAuthority = true;
+
+                    if (inVisualRange) {
+                        el.style.display = 'block';
+                        el.style.opacity = hasAuthority ? '1.0' : '0.3';
+                        el.style.border = hasAuthority ? '3px solid white' : '2px dashed rgba(255,255,255,0.5)';
+                    } else {
+                        el.style.display = 'none';
+                    }
+                } else {
+                    el.style.display = 'block';
+                    el.style.opacity = '1.0';
+                    el.style.border = '3px solid white';
+                }
+
+                el.style.background = activeColor;
+                el.style.boxShadow = `0 0 35px ${activeColor}`;
+            });
+        });
+
+        socket.on('kick_message', (msg) => {
+            alert(msg);
+            location.reload();
         });
     </script>
 </body>
