@@ -58,7 +58,7 @@ Before launching the mesh, ensure your Node.js environment can successfully conn
 
 Run the following command to initialize the gateway and all four simulation nodes simultaneously using concurrently:
 ```bash
-    npm run start-mesh
+    npm run start-all
 ```
 
 3. **Usage and Monitoring**
